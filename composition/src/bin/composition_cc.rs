@@ -33,14 +33,14 @@ pub fn main() {
             .link_staticlib(&dir, env!("CARGO_PKG_NAME"));
         
         #[cfg(any(feature = "grimoire", feature = "value_profile"))]
-        compiler.add_arg("-fsanitize-coverage=trace-pc-guard, trace-cmp");
+        compiler.add_arg("-fsanitize-coverage=trace-pc-guard,trace-cmp");
 
         #[cfg(feature = "grimoire")]
         compiler.add_pass(LLVMPasses::CmpLogRtn);
 
 
         #[cfg(feature = "mopt")]
-        compiler.add_arg("-fsanitize-coverage=trace-pc-guard, trace-cmp");
+        compiler.add_arg("-fsanitize-coverage=trace-pc-guard");
 
         if let Some(code) = compiler
             .run()
