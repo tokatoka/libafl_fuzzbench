@@ -19,6 +19,7 @@ members = [
     "eco",
     "cmplog",
     "composition",
+    "composition_v2",
     "value_profile",
     "value_profile_cmplog",
     "rand_scheduler",

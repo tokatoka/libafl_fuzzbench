@@ -10,7 +10,7 @@ no_link_main = ["libafl_targets/libfuzzer_no_link_main"]
 # explore = []
 
 # mutator. for this we have separate files
-grimoire = []
+grimoire = ["libafl_targets/sancov_cmplog"]
 mopt = []
 
 value_profile = ["libafl_targets/sancov_value_profile"]
