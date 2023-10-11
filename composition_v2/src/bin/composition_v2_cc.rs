@@ -1,6 +1,9 @@
 use libafl_cc::{ClangWrapper, CompilerWrapper, LLVMPasses};
 use std::env;
 
+#[cfg(feature = "cov_accounting")]
+const GRANULARITY: &str = "FUNC";
+
 pub fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
@@ -32,14 +35,40 @@ pub fn main() {
             .expect("Failed to parse the command line")
             .link_staticlib(&dir, env!("CARGO_PKG_NAME"));
         
+        #[cfg(any(feature = "ngram4", feature = "ngram8"))]
+        #[cfg(any(feature = "cmplog", feature = "value_profile"))]
+        compiler.add_arg("-fsanitize-coverage=trace-cmp");
+
+        #[cfg(not(any(feature = "ngram4", feature = "ngram8")))]
         #[cfg(any(feature = "cmplog", feature = "value_profile"))]
         compiler.add_arg("-fsanitize-coverage=trace-pc-guard,trace-cmp");
 
+        #[cfg(not(any(feature = "ngram4", feature = "ngram8")))]
         #[cfg(not(any(feature = "cmplog", feature = "value_profile")))]
         compiler.add_arg("-fsanitize-coverage=trace-pc-guard");
 
         #[cfg(feature = "cmplog")]
         compiler.add_pass(LLVMPasses::CmpLogRtn);
+
+        #[cfg(feature = "cov_accounting")]
+        {
+            compiler.add_pass(LLVMPasses::CoverageAccounting);
+            compiler.add_passes_arg(format!("-granularity={}", GRANULARITY));
+        }
+
+        #[cfg(feature = "ngram4")]
+        {
+            compiler.add_pass(LLVMPasses::AFLCoverage)
+                .add_passes_arg("4")
+                .add_passes_linking_arg("-lm");
+        }
+
+        #[cfg(feature = "ngram8")]
+        {
+            compiler.add_pass(LLVMPasses::AFLCoverage)
+                .add_passes_arg("8")
+                .add_passes_linking_arg("-lm");
+        }
 
         if let Some(code) = compiler
             .run()

@@ -34,16 +34,25 @@ use libafl::{
     fuzzer::{Fuzzer, StdFuzzer},
     inputs::{BytesInput, HasTargetBytes},
     monitors::SimpleMonitor,
-    mutators::{scheduled::havoc_mutations, tokens_mutations, StdScheduledMutator, Tokens, StdMOptMutator, token_mutations::I2SRandReplace},
+    mutators::{
+        scheduled::havoc_mutations, token_mutations::I2SRandReplace, tokens_mutations,
+        StdMOptMutator, StdScheduledMutator, Tokens,
+    },
     observers::{HitcountsMapObserver, TimeObserver},
     schedulers::{
-        powersched::PowerSchedule, IndexesLenTimeMinimizerScheduler, PowerQueueScheduler,
+        powersched::PowerSchedule, CoverageAccountingScheduler, IndexesLenTimeMinimizerScheduler,
+        PowerQueueScheduler, QueueScheduler, RandScheduler, StdWeightedScheduler,
     },
-    stages::{calibrate::CalibrationStage, power::StdPowerMutationalStage, tracing::TracingStage, StdMutationalStage},
+    stages::{
+        calibrate::CalibrationStage, power::StdPowerMutationalStage, tracing::TracingStage,
+        StdMutationalStage,
+    },
     state::{HasCorpus, HasMetadata, StdState},
     Error,
 };
-use libafl_targets::{libfuzzer_initialize, libfuzzer_test_one_input, std_edges_map_observer};
+use libafl_targets::{
+    libfuzzer_initialize, libfuzzer_test_one_input, std_edges_map_observer, ACCOUNTING_MEMOP_MAP,
+};
 
 #[cfg(feature = "cmplog")]
 use libafl_targets::CmpLogObserver;
@@ -245,11 +254,12 @@ fn fuzz(
 
     let map_feedback = MaxMapFeedback::tracking(&edges_observer, true, false);
 
+    #[cfg(any(feature = "fast", feature = "explore", feature = "weighted"))]
     let calibration = CalibrationStage::new(&map_feedback);
 
     // Feedback to rate the interestingness of an input
     // This one is composed by two Feedbacks in OR
-    #[cfg(feature = "naive_feedback")]
+    #[cfg(not(feature = "value_profile"))]
     let mut feedback = feedback_or!(
         // New maximization map feedback linked to the edges observer and the feedback state
         map_feedback,
@@ -266,7 +276,6 @@ fn fuzz(
         // Time feedback, this one does not need a feedback state
         TimeFeedback::with_observer(&time_observer)
     );
-
 
     // A feedback to choose if an input is a solution or not
     let mut objective = CrashFeedback::new();
@@ -312,7 +321,11 @@ fn fuzz(
     #[cfg(feature = "cmplog")]
     let i2s = StdMutationalStage::new(StdScheduledMutator::new(tuple_list!(I2SRandReplace::new())));
 
+    #[cfg(any(feature = "fast", feature = "explore", feature = "weighted"))]
     let power = StdPowerMutationalStage::new(mutator);
+
+    #[cfg(not(any(feature = "fast", feature = "explore", feature = "weighted")))]
+    let mutator = StdMutationalStage::new(mutator);
 
     #[cfg(feature = "fast")]
     // A minimization+queue policy to get testcasess from the corpus
@@ -328,6 +341,24 @@ fn fuzz(
         &mut edges_observer,
         PowerSchedule::EXPLORE,
     ));
+
+    #[cfg(feature = "rand_scheduler")]
+    let scheduler = RandScheduler::new();
+
+    #[cfg(feature = "weighted")]
+    let scheduler = IndexesLenTimeMinimizerScheduler::new(StdWeightedScheduler::new(
+        &mut state,
+        &edges_observer,
+    ));
+
+    #[cfg(feature = "cov_accounting")]
+    let scheduler = CoverageAccountingScheduler::new(&mut state, QueueScheduler::new(), unsafe {
+        &ACCOUNTING_MEMOP_MAP
+    });
+
+    #[cfg(not(any(feature = "fast", feature = "explore", feature = "rand_scheduler", feature = "weighted", feature = "cov_accounting")))]
+    let scheduler = IndexesLenTimeMinimizerScheduler::new(QueueScheduler::new());
+
 
     // A fuzzer with feedbacks and a corpus scheduler
     let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
@@ -355,7 +386,6 @@ fn fuzz(
         // Give it more time!
         timeout * 10,
     ));
-    
 
     #[cfg(feature = "value_profile")]
     let mut executor = TimeoutExecutor::new(
@@ -370,7 +400,7 @@ fn fuzz(
     );
 
     // Create the executor for an in-process function with one observer for edge coverage and one for the execution time
-    #[cfg(feature = "naive_feedback")]
+    #[cfg(not(feature = "value_profile"))]
     let mut executor = TimeoutExecutor::new(
         InProcessExecutor::new(
             &mut harness,
@@ -382,13 +412,30 @@ fn fuzz(
         timeout,
     );
 
+    #[cfg(not(any(feature = "fast", feature = "explore", feature = "weighted")))]
+    #[cfg(not(feature = "cmplog"))]
+    let mut stages = tuple_list!(mutator);
+
+    #[cfg(not(any(feature = "fast", feature = "explore", feature = "weighted")))]
+    #[cfg(feature = "cmplog")]
+    let mut stages = tuple_list!(tracing, i2s, mutator);
+
+    #[cfg(any(feature = "fast", feature = "explore", feature = "weighted"))]
+    #[cfg(not(feature = "cmplog"))]
+    let mut stages = tuple_list!(calibration, power);
+
+    #[cfg(any(feature = "fast", feature = "explore", feature = "weighted"))]
+    #[cfg(feature = "cmplog")]
+    let mut stages = tuple_list!(calibration, tracing, i2s, power);
+
+    /*
     // The order of the stages matter!
     #[cfg(not(feature = "cmplog"))]
     let mut stages = tuple_list!(calibration, power);
 
     #[cfg(feature = "cmplog")]
     let mut stages = tuple_list!(calibration, tracing, i2s, power);
-
+    */
 
     // Read tokens
     if state.metadata_map().get::<Tokens>().is_none() {

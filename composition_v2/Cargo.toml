@@ -12,10 +12,14 @@ mopt = []
 cmplog = ["libafl_targets/sancov_cmplog"]
 
 value_profile = ["libafl_targets/sancov_value_profile"]
-naive_feedback = []
+ngram4 = []
+ngram8 = []
 
 fast = []
 explore = []
+rand_scheduler = []
+weighted = []
+cov_accounting = []
 
 [dependencies]
 libafl = { path = "../LibAFL/libafl/" }
