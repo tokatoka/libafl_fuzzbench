@@ -59,6 +59,7 @@ pub fn main() {
         #[cfg(feature = "ngram4")]
         {
             compiler.add_pass(LLVMPasses::AFLCoverage)
+                .add_passes_arg("-ngram")
                 .add_passes_arg("4")
                 .add_passes_linking_arg("-lm");
         }
@@ -66,6 +67,7 @@ pub fn main() {
         #[cfg(feature = "ngram8")]
         {
             compiler.add_pass(LLVMPasses::AFLCoverage)
+                .add_passes_arg("-ngram")
                 .add_passes_arg("8")
                 .add_passes_linking_arg("-lm");
         }
